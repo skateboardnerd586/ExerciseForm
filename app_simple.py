@@ -160,12 +160,12 @@ def main():
             # Download data
             csv, filename = create_csv_download(rep_data)
             if csv:
-            st.download_button(
-                label="📥 Download Data as CSV",
-                data=csv,
-                    file_name=filename,
-                mime="text/csv"
-            )
+                st.download_button(
+                    label="📥 Download Data as CSV",
+                    data=csv,
+                        file_name=filename,
+                    mime="text/csv"
+                )
     
     # Video Output Section
     if st.session_state.video_processed and st.session_state.output_video_path:
