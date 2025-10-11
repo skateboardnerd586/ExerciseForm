@@ -47,6 +47,19 @@ st.markdown("""
         overflow: visible;
         white-space: pre-wrap;
         word-wrap: break-word;
+        color: #333333 !important;
+        font-size: 16px;
+        line-height: 1.6;
+    }
+    
+    /* Mobile-specific improvements */
+    @media (max-width: 768px) {
+        .analysis-box {
+            font-size: 18px !important;
+            line-height: 1.7 !important;
+            padding: 1rem !important;
+            color: #2c3e50 !important;
+        }
     }
 </style>
 """, unsafe_allow_html=True)
