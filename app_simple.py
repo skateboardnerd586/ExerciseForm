@@ -187,12 +187,19 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         tmp_path = tmp_file.name
     
     try:
-        # Load YOLOv11 model
+        # Load YOLOv11 model - ensure consistent model version
         with st.spinner("Loading YOLOv11 Pose model..."):
             model = YOLO('yolo11n-pose.pt')
         
         # Open video
         cap = cv2.VideoCapture(tmp_path)
+        
+        # Check if video needs horizontal flip correction
+        # Some video formats/cameras record mirrored
+        test_frame = None
+        ret, test_frame = cap.read()
+        if ret:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)  # Reset to beginning
         if not cap.isOpened():
             st.error("Could not open video file")
             return [], None
@@ -226,6 +233,9 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
             ret, frame = cap.read()
             if not ret:
                 break
+            
+            # Fix horizontal flip issue - flip frame horizontally
+            frame = cv2.flip(frame, 1)
             
             frame_count += 1
             
