@@ -4,9 +4,11 @@ A comprehensive web application for analyzing squat form using computer vision a
 
 ## 🚀 Streamlit Cloud Deployment
 
-**Main File**: `app.py` (refactored modular version)
+**Main File**: `app_simple.py` (refactored modular version with environment-aware rotation)
 
-**Legacy File**: `app_simple.py` (original single-file version)
+**Legacy File**: `app.py` (original single-file version)
+
+**Note**: Streamlit Cloud automatically uses `app_simple.py` as the main file, which now contains the improved modular version with automatic environment detection and rotation handling.
 
 ## Features
 
