@@ -178,7 +178,7 @@ def draw_pose(frame, keypoints):
                         (int(end_point[0]), int(end_point[1])),
                         (255, 0, 0), 2)
 
-def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
+def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150, orientation_mode="Auto (Cloud Detection)"):
     """Process uploaded video and extract squat data"""
     
     # Save uploaded file temporarily
@@ -194,19 +194,27 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         # Open video
         cap = cv2.VideoCapture(tmp_path)
         
-        # Detect if we're in cloud environment and need flip correction
-        # Cloud environments often need horizontal flip for proper orientation
-        is_cloud_env = (
-            os.getenv('STREAMLIT_CLOUD') is not None or 
-            'streamlit' in os.getcwd() or
-            os.getenv('STREAMLIT_SHARING_MODE') is not None or
-            '/mount/src/' in os.getcwd()
-        )
+        # Determine orientation correction based on user selection
+        apply_horizontal_flip = False
+        apply_vertical_flip = False
         
-        # Debug info (remove this later)
-        st.write(f"Debug - Current directory: {os.getcwd()}")
-        st.write(f"Debug - STREAMLIT_CLOUD: {os.getenv('STREAMLIT_CLOUD')}")
-        st.write(f"Debug - Is cloud env: {is_cloud_env}")
+        if orientation_mode == "Auto (Cloud Detection)":
+            # Detect if we're in cloud environment and need flip correction
+            is_cloud_env = (
+                os.getenv('STREAMLIT_CLOUD') is not None or 
+                'streamlit' in os.getcwd() or
+                os.getenv('STREAMLIT_SHARING_MODE') is not None or
+                '/mount/src/' in os.getcwd()
+            )
+            if is_cloud_env:
+                apply_horizontal_flip = True
+        elif orientation_mode == "Horizontal Flip":
+            apply_horizontal_flip = True
+        elif orientation_mode == "Vertical Flip":
+            apply_vertical_flip = True
+        elif orientation_mode == "Both Flips":
+            apply_horizontal_flip = True
+            apply_vertical_flip = True
         
         # Test frame to check orientation
         test_frame = None
@@ -247,12 +255,12 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
             if not ret:
                 break
             
-            # Apply flip correction for cloud environment to fix video orientation
-            if is_cloud_env:
-                # Try vertical flip (0) to correct the orientation issue
-                frame = cv2.flip(frame, 0)
-                if frame_count == 1:  # Only show once
-                    st.write("Debug - Applied vertical flip to correct video orientation")
+            # Apply orientation correction based on user selection
+            if apply_horizontal_flip:
+                frame = cv2.flip(frame, 1)  # Horizontal flip
+            
+            if apply_vertical_flip:
+                frame = cv2.flip(frame, 0)  # Vertical flip
             
             frame_count += 1
             
@@ -514,6 +522,14 @@ def main():
         help="Enter your OpenAI API key for AI analysis"
     )
     
+    # Video orientation settings
+    st.sidebar.subheader("Video Orientation")
+    orientation_mode = st.sidebar.selectbox(
+        "Video Orientation Fix",
+        ["Auto (Cloud Detection)", "No Flip", "Horizontal Flip", "Vertical Flip", "Both Flips"],
+        help="Choose how to correct video orientation. Try 'Horizontal Flip' if your video appears flipped left."
+    )
+    
     # Threshold settings
     st.sidebar.subheader("Detection Thresholds")
     st.sidebar.info("💡 **Note**: Due to model imperfections, maintain a ~20-degree difference between thresholds for reliable detection.")
@@ -550,7 +566,8 @@ def main():
                     rep_data, output_video_path = process_video(
                         uploaded_file, 
                         squat_down_threshold, 
-                        squat_up_threshold
+                        squat_up_threshold,
+                        orientation_mode
                     )
                     st.session_state.rep_data = rep_data
                     st.session_state.output_video_path = output_video_path
