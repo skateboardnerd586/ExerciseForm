@@ -247,9 +247,11 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
             if not ret:
                 break
             
-            # Apply horizontal flip only in cloud environment
+            # Apply flip correction only in cloud environment
             if is_cloud_env:
-                frame = cv2.flip(frame, 1)
+                frame = cv2.flip(frame, -1)  # Try both horizontal and vertical flip
+                if frame_count == 1:  # Only show once
+                    st.write("Debug - Applied flip correction to video frames")
             
             frame_count += 1
             
