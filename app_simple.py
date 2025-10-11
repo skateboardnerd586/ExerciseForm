@@ -125,6 +125,20 @@ def get_video_orientation_from_metadata(video_path):
         except Exception as e:
             debug_info.append(f"exifread failed: {str(e)}")
         
+        # Method 2.5: Try to read video metadata using OpenCV properties
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if cap.isOpened():
+                # Check if OpenCV can read any rotation metadata
+                rotation_prop = cap.get(cv2.CAP_PROP_ORIENTATION_META)
+                debug_info.append(f"OpenCV rotation property: {rotation_prop}")
+                if rotation_prop > 0:
+                    cap.release()
+                    return int(rotation_prop), debug_info
+                cap.release()
+        except Exception as e:
+            debug_info.append(f"OpenCV metadata check failed: {str(e)}")
+        
         # Method 3: Check video dimensions as heuristic
         cap = cv2.VideoCapture(video_path)
         if cap.isOpened():
@@ -376,10 +390,11 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150, 
         elif manual_rotation > 0:
             st.info(f"🔄 Manual rotation applied: {manual_rotation}°")
         else:
+            st.warning("⚠️ **Auto-detection failed** - No orientation metadata found in your video.")
+            st.info("💡 **Solution**: Use the 'Manual Rotation Override' option in the sidebar. Most videos that appear upside down need **180° rotation**.")
+            
             if height and width and height > width:
-                st.warning("⚠️ **Auto-detection failed** - Your video is taller than wide. Try manual rotation (90° or 270°).")
-            else:
-                st.warning("⚠️ **Auto-detection failed** - No orientation metadata found. Use manual rotation if video appears wrong.")
+                st.info("📱 Your video is taller than wide - if it appears sideways, try **90° or 270°** rotation.")
         
         # Open video
         cap = cv2.VideoCapture(tmp_path)
@@ -798,8 +813,8 @@ def main():
             <strong>📏 Make sure the entire body is visible in the camera view</strong> - from head to feet - 
             so the AI can properly track all key points for accurate movement analysis.
             <br><br>
-            <strong>🔄 Video Orientation:</strong> The app automatically detects and corrects video orientation from metadata. 
-            If automatic detection fails, use the "Video Rotation Correction" option in the sidebar to manually fix it.
+            <strong>🔄 Video Orientation:</strong> The app tries to automatically detect video orientation from metadata. 
+            If automatic detection fails (common with many videos), use the "Manual Rotation Override" option in the sidebar to fix it.
         </p>
     </div>
     """, unsafe_allow_html=True)
