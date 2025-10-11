@@ -76,35 +76,52 @@ POSE_CONNECTIONS = [
 ]
 
 def get_video_orientation(video_path):
-    """Get video orientation from metadata"""
+    """Get video orientation from metadata with fallback methods"""
     try:
-        # Try to get orientation from video metadata using ffprobe
-        cmd = [
-            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
-            '-show_streams', video_path
-        ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        # Method 1: Try ffprobe if available
+        try:
+            cmd = [
+                'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+                '-show_streams', video_path
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                for stream in data.get('streams', []):
+                    if stream.get('codec_type') == 'video':
+                        # Check for rotation metadata
+                        rotation = stream.get('tags', {}).get('rotate', 0)
+                        if rotation:
+                            return int(rotation)
+                        
+                        # Check for display matrix rotation
+                        side_data = stream.get('side_data_list', [])
+                        for side in side_data:
+                            if side.get('side_data_type') == 'Display Matrix':
+                                rotation_str = side.get('rotation', '0')
+                                if rotation_str:
+                                    return int(rotation_str)
+        except FileNotFoundError:
+            # ffprobe not available, try alternative methods
+            pass
         
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            for stream in data.get('streams', []):
-                if stream.get('codec_type') == 'video':
-                    # Check for rotation metadata
-                    rotation = stream.get('tags', {}).get('rotate', 0)
-                    if rotation:
-                        return int(rotation)
-                    
-                    # Check for display matrix rotation
-                    side_data = stream.get('side_data_list', [])
-                    for side in side_data:
-                        if side.get('side_data_type') == 'Display Matrix':
-                            rotation_str = side.get('rotation', '0')
-                            if rotation_str:
-                                return int(rotation_str)
+        # Method 2: Try to detect orientation from video dimensions
+        # This is a heuristic approach - mobile videos are often taller than wide when rotated
+        cap = cv2.VideoCapture(video_path)
+        if cap.isOpened():
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+            cap.release()
+            
+            # If height > width, it might be a rotated mobile video
+            # But we can't be sure, so return 0 and let user manually correct
+            if height > width:
+                return 0  # Let user decide with manual rotation
         
         return 0
     except Exception as e:
-        st.warning(f"Could not detect video orientation: {e}")
+        # Silent fallback - don't show warning for missing ffprobe
         return 0
 
 def rotate_frame(frame, rotation_angle):
@@ -270,14 +287,16 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150, 
             model = YOLO('yolo11n-pose.pt')
         
         # Detect video orientation
-        with st.spinner("Detecting video orientation..."):
+        with st.spinner("Checking video orientation..."):
             detected_rotation = get_video_orientation(tmp_path)
             total_rotation = (detected_rotation + manual_rotation) % 360
         
         if detected_rotation > 0:
             st.info(f"📱 Detected video rotation: {detected_rotation}° (auto-correcting)")
-        if manual_rotation > 0:
+        elif manual_rotation > 0:
             st.info(f"🔄 Manual rotation applied: {manual_rotation}°")
+        else:
+            st.info("📱 No automatic rotation detected. Use manual rotation if video appears upside down or sideways.")
         
         # Open video
         cap = cv2.VideoCapture(tmp_path)
@@ -719,7 +738,7 @@ def main():
         "Manual Rotation Correction",
         options=[0, 90, 180, 270],
         format_func=lambda x: f"{x}° ({'No rotation' if x == 0 else 'Rotate ' + str(x) + '° clockwise'})",
-        help="If the video appears upside down or sideways, use this to correct it"
+        help="If your video appears upside down or sideways, select the appropriate rotation. Most mobile videos need 90° or 270° rotation."
     )
     
     # Threshold settings
