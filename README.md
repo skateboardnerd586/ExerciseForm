@@ -2,6 +2,12 @@
 
 A comprehensive web application for analyzing squat form using computer vision and AI.
 
+## 🚀 Streamlit Cloud Deployment
+
+**Main File**: `app.py` (refactored modular version)
+
+**Legacy File**: `app_simple.py` (original single-file version)
+
 ## Features
 
 - **Video Upload & Processing**: Upload squat videos and automatically detect reps using YOLOv11 Pose
