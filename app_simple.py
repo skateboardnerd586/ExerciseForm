@@ -196,7 +196,6 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         
         # Detect if we're in cloud environment and need flip correction
         # Cloud environments often need horizontal flip for proper orientation
-        import os
         is_cloud_env = os.getenv('STREAMLIT_CLOUD') is not None or 'streamlit' in os.getcwd()
         
         # Test frame to check orientation
