@@ -10,8 +10,6 @@ from datetime import datetime
 import openai
 from io import BytesIO
 import matplotlib.pyplot as plt
-from PIL import Image
-import exifread
 
 # Page configuration
 st.set_page_config(
@@ -72,125 +70,23 @@ POSE_CONNECTIONS = [
 ]
 
 def get_video_orientation_from_metadata(video_path):
-    """Detect video orientation from metadata using multiple methods"""
+    """Detect video orientation from OpenCV metadata"""
     debug_info = []
     
     try:
-        # Method 1: Try to extract first frame and check EXIF data
+        # Use OpenCV to read rotation metadata
         cap = cv2.VideoCapture(video_path)
         if cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                # Convert OpenCV frame to PIL Image
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                pil_image = Image.fromarray(frame_rgb)
-                
-                # Check for EXIF orientation data
-                if hasattr(pil_image, '_getexif') and pil_image._getexif() is not None:
-                    exif = pil_image._getexif()
-                    if exif is not None:
-                        orientation = exif.get(274)  # Orientation tag
-                        debug_info.append(f"EXIF orientation tag: {orientation}")
-                        if orientation:
-                            # Convert EXIF orientation to rotation angle
-                            orientation_map = {
-                                1: 0,    # Normal
-                                3: 180,  # Rotated 180°
-                                6: 270,  # Rotated 90° clockwise
-                                8: 90    # Rotated 90° counter-clockwise
-                            }
-                            rotation = orientation_map.get(orientation, 0)
-                            debug_info.append(f"EXIF detected rotation: {rotation}°")
-                            cap.release()
-                            return rotation, debug_info
-                else:
-                    debug_info.append("No EXIF data found in video frame")
+            rotation_prop = cap.get(cv2.CAP_PROP_ORIENTATION_META)
+            debug_info.append(f"OpenCV rotation property: {rotation_prop}")
+            
+            if rotation_prop > 0:
+                cap.release()
+                return int(rotation_prop), debug_info
             
             cap.release()
         
-        # Method 2: Try using exifread library for video files
-        try:
-            with open(video_path, 'rb') as f:
-                tags = exifread.process_file(f, details=False)
-                debug_info.append(f"exifread tags found: {list(tags.keys())}")
-                if 'Image Orientation' in tags:
-                    orientation = str(tags['Image Orientation'])
-                    debug_info.append(f"exifread orientation: {orientation}")
-                    if 'Rotated 90' in orientation:
-                        return 90, debug_info
-                    elif 'Rotated 180' in orientation:
-                        return 180, debug_info
-                    elif 'Rotated 270' in orientation:
-                        return 270, debug_info
-        except Exception as e:
-            debug_info.append(f"exifread failed: {str(e)}")
-        
-        # Method 2.5: Try to read video metadata using OpenCV properties
-        try:
-            cap = cv2.VideoCapture(video_path)
-            if cap.isOpened():
-                # Check if OpenCV can read any rotation metadata
-                rotation_prop = cap.get(cv2.CAP_PROP_ORIENTATION_META)
-                debug_info.append(f"OpenCV rotation property: {rotation_prop}")
-                if rotation_prop > 0:
-                    cap.release()
-                    return int(rotation_prop), debug_info
-                cap.release()
-        except Exception as e:
-            debug_info.append(f"OpenCV metadata check failed: {str(e)}")
-        
-        # Method 3: Check video dimensions as heuristic
-        cap = cv2.VideoCapture(video_path)
-        if cap.isOpened():
-            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            cap.release()
-            
-            debug_info.append(f"Video dimensions: {width}x{height}")
-            
-            # If height > width, it might be a rotated mobile video
-            # But we can't be sure, so return 0 and let user manually correct
-            if height > width:
-                debug_info.append("Video is taller than wide - might need rotation")
-                return 0, debug_info
-        
-        # Method 4: Try to detect if video is upside down by analyzing content
-        # This is a heuristic - if the video appears to be upside down based on common patterns
-        try:
-            cap = cv2.VideoCapture(video_path)
-            if cap.isOpened():
-                # Read a few frames from different parts of the video
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                sample_frames = [total_frames // 4, total_frames // 2, 3 * total_frames // 4]
-                
-                upside_down_score = 0
-                for frame_num in sample_frames:
-                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
-                    ret, frame = cap.read()
-                    if ret:
-                        # Simple heuristic: check if there's more "sky" (bright pixels) at the top
-                        # This is very basic and might not work for all videos
-                        height, width = frame.shape[:2]
-                        top_half = frame[:height//2]
-                        bottom_half = frame[height//2:]
-                        
-                        top_brightness = np.mean(top_half)
-                        bottom_brightness = np.mean(bottom_half)
-                        
-                        # If top is significantly brighter, it might be upside down
-                        if top_brightness > bottom_brightness + 20:
-                            upside_down_score += 1
-                
-                cap.release()
-                
-                debug_info.append(f"Upside-down detection score: {upside_down_score}/3")
-                if upside_down_score >= 2:
-                    debug_info.append("Content analysis suggests video might be upside down")
-                    return 180, debug_info
-        except Exception as e:
-            debug_info.append(f"Content analysis failed: {str(e)}")
-        
-        debug_info.append("No orientation metadata detected")
+        debug_info.append("No rotation metadata detected")
         return 0, debug_info
     except Exception as e:
         debug_info.append(f"Error in orientation detection: {str(e)}")
@@ -640,15 +536,17 @@ def analyze_with_openai(rep_data, api_key):
         
         {data_summary}
         
-        Please provide a concise analysis (under 300 words) covering:
+        Please provide a concise analysis (under 500 words) covering:
         1. Overall squat form and depth assessment
         2. Bilateral symmetry analysis (left vs right leg)
-        3. Key corrective exercises for identified limitations
-        4. Training recommendations for improvement
+        3. Ankle, Hip, Shoulder, and Core stability assessment
+        4. Overactive and underactive muscles assessment
+        5. Key corrective exercises for identified limitations
+        6. Training recommendations for improvement
         
         Focus on practical, actionable exercises and training strategies the person can implement safely.
         Please use second person to address the user and emphasize consulting professionals for any concerns.
-        Keep your response under 300 words.
+        Keep your response under 500 words.
         """
         
         response = client.chat.completions.create(
@@ -781,16 +679,6 @@ def main():
         3. **Keep chest up** and maintain neutral spine
         4. **Hold briefly** at the bottom position
         5. **Return to standing** while keeping arms overhead
-        """)
-        
-        st.markdown("#### 🎯 What We're Assessing:")
-        st.markdown("""
-        - **Ankle Mobility:** Can you squat deep without heels lifting?
-        - **Hip Mobility:** Can you achieve full depth with good form?
-        - **Thoracic Spine:** Can you maintain overhead position?
-        - **Shoulder Mobility:** Can you keep arms overhead throughout?
-        - **Core Stability:** Can you maintain neutral spine?
-        - **Balance:** Can you perform the movement symmetrically?
         """)
         
         st.markdown("💡 **Tip:** Perform 3-5 reps for best assessment results. The AI will analyze your movement patterns and provide corrective exercise recommendations.")
