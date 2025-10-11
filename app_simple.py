@@ -247,11 +247,12 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
             if not ret:
                 break
             
-            # No flip correction needed - video appears correct without flipping
-            # if is_cloud_env:
-            #     frame = cv2.flip(frame, 1)
-            #     if frame_count == 1:
-            #         st.write("Debug - Applied flip correction")
+            # Apply flip correction for cloud environment to fix video orientation
+            if is_cloud_env:
+                # Try horizontal flip (1) to correct the left-right mirror issue
+                frame = cv2.flip(frame, 1)
+                if frame_count == 1:  # Only show once
+                    st.write("Debug - Applied horizontal flip to correct video orientation")
             
             frame_count += 1
             
