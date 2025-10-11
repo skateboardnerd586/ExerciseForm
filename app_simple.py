@@ -73,6 +73,8 @@ POSE_CONNECTIONS = [
 
 def get_video_orientation_from_metadata(video_path):
     """Detect video orientation from metadata using multiple methods"""
+    debug_info = []
+    
     try:
         # Method 1: Try to extract first frame and check EXIF data
         cap = cv2.VideoCapture(video_path)
@@ -88,6 +90,7 @@ def get_video_orientation_from_metadata(video_path):
                     exif = pil_image._getexif()
                     if exif is not None:
                         orientation = exif.get(274)  # Orientation tag
+                        debug_info.append(f"EXIF orientation tag: {orientation}")
                         if orientation:
                             # Convert EXIF orientation to rotation angle
                             orientation_map = {
@@ -97,8 +100,11 @@ def get_video_orientation_from_metadata(video_path):
                                 8: 90    # Rotated 90° counter-clockwise
                             }
                             rotation = orientation_map.get(orientation, 0)
+                            debug_info.append(f"EXIF detected rotation: {rotation}°")
                             cap.release()
-                            return rotation
+                            return rotation, debug_info
+                else:
+                    debug_info.append("No EXIF data found in video frame")
             
             cap.release()
         
@@ -106,16 +112,18 @@ def get_video_orientation_from_metadata(video_path):
         try:
             with open(video_path, 'rb') as f:
                 tags = exifread.process_file(f, details=False)
+                debug_info.append(f"exifread tags found: {list(tags.keys())}")
                 if 'Image Orientation' in tags:
                     orientation = str(tags['Image Orientation'])
+                    debug_info.append(f"exifread orientation: {orientation}")
                     if 'Rotated 90' in orientation:
-                        return 90
+                        return 90, debug_info
                     elif 'Rotated 180' in orientation:
-                        return 180
+                        return 180, debug_info
                     elif 'Rotated 270' in orientation:
-                        return 270
-        except:
-            pass
+                        return 270, debug_info
+        except Exception as e:
+            debug_info.append(f"exifread failed: {str(e)}")
         
         # Method 3: Check video dimensions as heuristic
         cap = cv2.VideoCapture(video_path)
@@ -124,14 +132,55 @@ def get_video_orientation_from_metadata(video_path):
             height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
             cap.release()
             
+            debug_info.append(f"Video dimensions: {width}x{height}")
+            
             # If height > width, it might be a rotated mobile video
             # But we can't be sure, so return 0 and let user manually correct
             if height > width:
-                return 0  # Let user decide with manual rotation
+                debug_info.append("Video is taller than wide - might need rotation")
+                return 0, debug_info
         
-        return 0
-    except Exception:
-        return 0
+        # Method 4: Try to detect if video is upside down by analyzing content
+        # This is a heuristic - if the video appears to be upside down based on common patterns
+        try:
+            cap = cv2.VideoCapture(video_path)
+            if cap.isOpened():
+                # Read a few frames from different parts of the video
+                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                sample_frames = [total_frames // 4, total_frames // 2, 3 * total_frames // 4]
+                
+                upside_down_score = 0
+                for frame_num in sample_frames:
+                    cap.set(cv2.CAP_PROP_POS_FRAMES, frame_num)
+                    ret, frame = cap.read()
+                    if ret:
+                        # Simple heuristic: check if there's more "sky" (bright pixels) at the top
+                        # This is very basic and might not work for all videos
+                        height, width = frame.shape[:2]
+                        top_half = frame[:height//2]
+                        bottom_half = frame[height//2:]
+                        
+                        top_brightness = np.mean(top_half)
+                        bottom_brightness = np.mean(bottom_half)
+                        
+                        # If top is significantly brighter, it might be upside down
+                        if top_brightness > bottom_brightness + 20:
+                            upside_down_score += 1
+                
+                cap.release()
+                
+                debug_info.append(f"Upside-down detection score: {upside_down_score}/3")
+                if upside_down_score >= 2:
+                    debug_info.append("Content analysis suggests video might be upside down")
+                    return 180, debug_info
+        except Exception as e:
+            debug_info.append(f"Content analysis failed: {str(e)}")
+        
+        debug_info.append("No orientation metadata detected")
+        return 0, debug_info
+    except Exception as e:
+        debug_info.append(f"Error in orientation detection: {str(e)}")
+        return 0, debug_info
 
 def get_video_dimensions(video_path):
     """Get video dimensions to help user decide on rotation"""
@@ -310,12 +359,17 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150, 
         
         # Detect video orientation from metadata
         with st.spinner("Detecting video orientation..."):
-            detected_rotation = get_video_orientation_from_metadata(tmp_path)
+            detected_rotation, debug_info = get_video_orientation_from_metadata(tmp_path)
             width, height = get_video_dimensions(tmp_path)
             total_rotation = (detected_rotation + manual_rotation) % 360
         
         if width and height:
             st.info(f"📱 Video dimensions: {width}x{height} pixels")
+        
+        # Show debug information to help understand what was detected
+        with st.expander("🔍 Orientation Detection Details", expanded=False):
+            for info in debug_info:
+                st.text(info)
         
         if detected_rotation > 0:
             st.success(f"🎯 **Auto-detected rotation: {detected_rotation}°** - Video will be automatically corrected!")
@@ -323,9 +377,9 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150, 
             st.info(f"🔄 Manual rotation applied: {manual_rotation}°")
         else:
             if height and width and height > width:
-                st.info("💡 **Tip**: Your video is taller than wide. If it appears sideways, try 90° or 270° rotation.")
+                st.warning("⚠️ **Auto-detection failed** - Your video is taller than wide. Try manual rotation (90° or 270°).")
             else:
-                st.info("📱 No rotation needed - video appears to be in correct orientation.")
+                st.warning("⚠️ **Auto-detection failed** - No orientation metadata found. Use manual rotation if video appears wrong.")
         
         # Open video
         cap = cv2.VideoCapture(tmp_path)
