@@ -810,9 +810,6 @@ def main():
             <strong>📏 Make sure the entire body is visible in the camera view</strong> - from head to feet - 
             so the AI can properly track all key points for accurate movement analysis.
             <br><br>
-            <strong>🎥 Film in any orientation you prefer</strong> - the app will automatically detect and correct video orientation, 
-            or you can use the manual rotation option in the sidebar if needed.
-            <br><br>
             <strong>💡 Pro tip:</strong> Ensure good lighting and a clear background for the best pose detection results.
         </p>
     </div>
