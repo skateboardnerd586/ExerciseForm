@@ -1,0 +1,529 @@
+import streamlit as st
+import cv2
+import numpy as np
+import math
+import subprocess
+import sys
+import tempfile
+import os
+from ultralytics import YOLO
+import json
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+from datetime import datetime
+import openai
+from io import BytesIO
+
+# Page configuration
+st.set_page_config(
+    page_title="Squat Tracker AI",
+    page_icon="🏋️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom CSS for better styling
+st.markdown("""
+<style>
+    .main-header {
+        font-size: 3rem;
+        font-weight: bold;
+        text-align: center;
+        margin-bottom: 2rem;
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+    .metric-card {
+        background-color: #f0f2f6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #667eea;
+    }
+    .analysis-box {
+        background-color: #f8f9fa;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid #e9ecef;
+        margin: 1rem 0;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Initialize session state
+if 'rep_data' not in st.session_state:
+    st.session_state.rep_data = []
+if 'video_processed' not in st.session_state:
+    st.session_state.video_processed = False
+if 'analysis_complete' not in st.session_state:
+    st.session_state.analysis_complete = False
+
+# YOLOv11 pose keypoint connections
+POSE_CONNECTIONS = [
+    (0, 1), (0, 2), (1, 3), (2, 4),  # nose-eyes-ears
+    (5, 6), (5, 7), (6, 8), (7, 9), (8, 10),  # upper body
+    (5, 11), (6, 12), (11, 12),  # torso
+    (11, 13), (12, 14), (13, 15), (14, 16),  # lower body
+]
+
+def angle_between(v1, v2):
+    """Calculate angle between two vectors in degrees"""
+    dot = v1[0]*v2[0] + v1[1]*v2[1]
+    mag1 = math.sqrt(v1[0]**2 + v1[1]**2)
+    mag2 = math.sqrt(v2[0]**2 + v2[1]**2)
+    if mag1 * mag2 == 0:
+        return 0
+    return math.degrees(math.acos(dot / (mag1 * mag2)))
+
+def calculate_knee_angles(keypoints):
+    """Calculate knee angles for both legs"""
+    LEFT_HIP = 11
+    LEFT_KNEE = 13
+    LEFT_ANKLE = 15
+    RIGHT_HIP = 12
+    RIGHT_KNEE = 14
+    RIGHT_ANKLE = 16
+    
+    left_hip = keypoints[LEFT_HIP]
+    left_knee = keypoints[LEFT_KNEE]
+    left_ankle = keypoints[LEFT_ANKLE]
+    right_hip = keypoints[RIGHT_HIP]
+    right_knee = keypoints[RIGHT_KNEE]
+    right_ankle = keypoints[RIGHT_ANKLE]
+    
+    left_thigh = (left_hip[0] - left_knee[0], left_hip[1] - left_knee[1])
+    left_shin = (left_ankle[0] - left_knee[0], left_ankle[1] - left_knee[1])
+    left_angle = angle_between(left_thigh, left_shin)
+    
+    right_thigh = (right_hip[0] - right_knee[0], right_hip[1] - right_knee[1])
+    right_shin = (right_ankle[0] - right_knee[0], right_ankle[1] - right_knee[1])
+    right_angle = angle_between(right_thigh, right_shin)
+    
+    return left_angle, right_angle
+
+def calculate_hip_angles(keypoints):
+    """Calculate hip angles for both legs"""
+    LEFT_SHOULDER = 5
+    LEFT_HIP = 11
+    LEFT_KNEE = 13
+    RIGHT_SHOULDER = 6
+    RIGHT_HIP = 12
+    RIGHT_KNEE = 14
+    
+    left_shoulder = keypoints[LEFT_SHOULDER]
+    left_hip = keypoints[LEFT_HIP]
+    left_knee = keypoints[LEFT_KNEE]
+    right_shoulder = keypoints[RIGHT_SHOULDER]
+    right_hip = keypoints[RIGHT_HIP]
+    right_knee = keypoints[RIGHT_KNEE]
+    
+    left_torso = (left_shoulder[0] - left_hip[0], left_shoulder[1] - left_hip[1])
+    left_thigh = (left_knee[0] - left_hip[0], left_knee[1] - left_hip[1])
+    left_angle = angle_between(left_torso, left_thigh)
+    
+    right_torso = (right_shoulder[0] - right_hip[0], right_shoulder[1] - right_hip[1])
+    right_thigh = (right_knee[0] - right_hip[0], right_knee[1] - right_hip[1])
+    right_angle = angle_between(right_torso, right_thigh)
+    
+    return left_angle, right_angle
+
+def detect_pose_yolo(model, frame):
+    """Detect pose using YOLOv11 Pose"""
+    try:
+        results = model(frame, verbose=False)
+        
+        if results and len(results) > 0:
+            result = results[0]
+            
+            if result.keypoints is not None and len(result.keypoints.xy) > 0:
+                keypoints = result.keypoints.xy[0].cpu().numpy()
+                confidences = result.keypoints.conf[0].cpu().numpy()
+                
+                keypoints_formatted = []
+                for i, (kp, conf) in enumerate(zip(keypoints, confidences)):
+                    x, y = kp
+                    keypoints_formatted.append((float(x), float(y), float(conf)))
+                
+                return keypoints_formatted
+        
+        return None
+    
+    except Exception as e:
+        st.error(f"YOLOv11 Pose inference error: {e}")
+        return None
+
+def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
+    """Process uploaded video and extract squat data"""
+    
+    # Save uploaded file temporarily
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as tmp_file:
+        tmp_file.write(video_file.read())
+        tmp_path = tmp_file.name
+    
+    try:
+        # Load YOLOv11 model
+        with st.spinner("Loading YOLOv11 Pose model..."):
+            model = YOLO('yolo11n-pose.pt')
+        
+        # Open video
+        cap = cv2.VideoCapture(tmp_path)
+        if not cap.isOpened():
+            st.error("Could not open video file")
+            return []
+        
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        # Initialize tracking variables
+        rep_count = 0
+        phase = "standing"
+        frame_count = 0
+        lowest_left_knee_angle_this_rep = None
+        lowest_right_knee_angle_this_rep = None
+        lowest_left_hip_angle_this_rep = None
+        lowest_right_hip_angle_this_rep = None
+        rep_history = []
+        squat_start_frame = None
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            
+            frame_count += 1
+            
+            # Update progress
+            progress = frame_count / total_frames
+            progress_bar.progress(progress)
+            status_text.text(f"Processing frame {frame_count}/{total_frames}")
+            
+            # Detect pose
+            keypoints = detect_pose_yolo(model, frame)
+            
+            if keypoints:
+                left_knee_angle, right_knee_angle = calculate_knee_angles(keypoints)
+                left_hip_angle, right_hip_angle = calculate_hip_angles(keypoints)
+                
+                if left_knee_angle is not None and right_knee_angle is not None:
+                    min_knee_angle = min(left_knee_angle, right_knee_angle)
+                    
+                    if phase == "standing" and min_knee_angle < squat_down_threshold:
+                        phase = "squatting"
+                        lowest_left_knee_angle_this_rep = left_knee_angle
+                        lowest_right_knee_angle_this_rep = right_knee_angle
+                        lowest_left_hip_angle_this_rep = left_hip_angle if left_hip_angle is not None else None
+                        lowest_right_hip_angle_this_rep = right_hip_angle if right_hip_angle is not None else None
+                        squat_start_frame = frame_count
+                    
+                    elif phase == "squatting":
+                        # Update lowest angles
+                        if left_knee_angle < lowest_left_knee_angle_this_rep:
+                            lowest_left_knee_angle_this_rep = left_knee_angle
+                        if right_knee_angle < lowest_right_knee_angle_this_rep:
+                            lowest_right_knee_angle_this_rep = right_knee_angle
+                        
+                        if left_hip_angle is not None and (lowest_left_hip_angle_this_rep is None or left_hip_angle < lowest_left_hip_angle_this_rep):
+                            lowest_left_hip_angle_this_rep = left_hip_angle
+                        if right_hip_angle is not None and (lowest_right_hip_angle_this_rep is None or right_hip_angle < lowest_right_hip_angle_this_rep):
+                            lowest_right_hip_angle_this_rep = right_hip_angle
+                        
+                        # Check if back to standing
+                        if min_knee_angle >= squat_up_threshold:
+                            phase = "standing"
+                            rep_count += 1
+                            squat_duration_frames = frame_count - squat_start_frame
+                            squat_duration_seconds = squat_duration_frames / fps
+                            
+                            rep_data = {
+                                'rep_number': rep_count,
+                                'left_knee_angle': lowest_left_knee_angle_this_rep,
+                                'right_knee_angle': lowest_right_knee_angle_this_rep,
+                                'left_hip_angle': lowest_left_hip_angle_this_rep,
+                                'right_hip_angle': lowest_right_hip_angle_this_rep,
+                                'duration_seconds': squat_duration_seconds,
+                                'timestamp': frame_count / fps
+                            }
+                            rep_history.append(rep_data)
+                            
+                            # Reset for next rep
+                            lowest_left_knee_angle_this_rep = None
+                            lowest_right_knee_angle_this_rep = None
+                            lowest_left_hip_angle_this_rep = None
+                            lowest_right_hip_angle_this_rep = None
+                            squat_start_frame = None
+        
+        cap.release()
+        progress_bar.empty()
+        status_text.empty()
+        
+        return rep_history
+        
+    finally:
+        # Clean up temporary file
+        os.unlink(tmp_path)
+
+def analyze_with_openai(rep_data, api_key):
+    """Analyze squat data using OpenAI LLM"""
+    if not api_key:
+        return "Please provide your OpenAI API key in the sidebar to get AI analysis."
+    
+    try:
+        openai.api_key = api_key
+        
+        # Prepare data summary
+        total_reps = len(rep_data)
+        avg_left_knee = np.mean([rep['left_knee_angle'] for rep in rep_data])
+        avg_right_knee = np.mean([rep['right_knee_angle'] for rep in rep_data])
+        avg_left_hip = np.mean([rep['left_hip_angle'] for rep in rep_data if rep['left_hip_angle'] is not None])
+        avg_right_hip = np.mean([rep['right_hip_angle'] for rep in rep_data if rep['right_hip_angle'] is not None])
+        avg_duration = np.mean([rep['duration_seconds'] for rep in rep_data])
+        
+        data_summary = f"""
+        Squat Analysis Data:
+        - Total Reps: {total_reps}
+        - Average Left Knee Angle: {avg_left_knee:.1f}°
+        - Average Right Knee Angle: {avg_right_knee:.1f}°
+        - Average Left Hip Angle: {avg_left_hip:.1f}°
+        - Average Right Hip Angle: {avg_right_hip:.1f}°
+        - Average Duration: {avg_duration:.1f} seconds
+        
+        Individual Rep Details:
+        """
+        
+        for i, rep in enumerate(rep_data):
+            data_summary += f"""
+        Rep {rep['rep_number']}:
+        - Left Knee: {rep['left_knee_angle']:.1f}°
+        - Right Knee: {rep['right_knee_angle']:.1f}°
+        - Left Hip: {rep['left_hip_angle']:.1f}° (if available)
+        - Right Hip: {rep['right_hip_angle']:.1f}° (if available)
+        - Duration: {rep['duration_seconds']:.1f}s
+        """
+        
+        prompt = f"""
+        As a professional fitness trainer and biomechanics expert, analyze this squat tracking data and provide detailed insights:
+        
+        {data_summary}
+        
+        Please provide:
+        1. Overall assessment of squat form and depth
+        2. Analysis of bilateral symmetry (left vs right leg)
+        3. Timing analysis (duration consistency)
+        4. Specific recommendations for improvement
+        5. Any potential injury risks or concerns
+        6. Suggestions for progression
+        
+        Keep the analysis professional, actionable, and encouraging. Focus on practical improvements the person can implement.
+        """
+        
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "You are a professional fitness trainer and biomechanics expert with extensive experience in movement analysis and corrective exercise."},
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=1000,
+            temperature=0.7
+        )
+        
+        return response.choices[0].message.content
+        
+    except Exception as e:
+        return f"Error analyzing with OpenAI: {str(e)}"
+
+def create_visualizations(rep_data):
+    """Create interactive visualizations of squat data"""
+    if not rep_data:
+        return None, None, None
+    
+    df = pd.DataFrame(rep_data)
+    
+    # Knee angles over time
+    fig_knee = go.Figure()
+    fig_knee.add_trace(go.Scatter(
+        x=df['rep_number'], 
+        y=df['left_knee_angle'], 
+        mode='lines+markers',
+        name='Left Knee',
+        line=dict(color='#1f77b4')
+    ))
+    fig_knee.add_trace(go.Scatter(
+        x=df['rep_number'], 
+        y=df['right_knee_angle'], 
+        mode='lines+markers',
+        name='Right Knee',
+        line=dict(color='#ff7f0e')
+    ))
+    fig_knee.update_layout(
+        title='Knee Angles by Rep',
+        xaxis_title='Rep Number',
+        yaxis_title='Angle (degrees)',
+        hovermode='x unified'
+    )
+    
+    # Hip angles over time
+    fig_hip = go.Figure()
+    if df['left_hip_angle'].notna().any():
+        fig_hip.add_trace(go.Scatter(
+            x=df['rep_number'], 
+            y=df['left_hip_angle'], 
+            mode='lines+markers',
+            name='Left Hip',
+            line=dict(color='#2ca02c')
+        ))
+    if df['right_hip_angle'].notna().any():
+        fig_hip.add_trace(go.Scatter(
+            x=df['rep_number'], 
+            y=df['right_hip_angle'], 
+            mode='lines+markers',
+            name='Right Hip',
+            line=dict(color='#d62728')
+        ))
+    fig_hip.update_layout(
+        title='Hip Angles by Rep',
+        xaxis_title='Rep Number',
+        yaxis_title='Angle (degrees)',
+        hovermode='x unified'
+    )
+    
+    # Duration over time
+    fig_duration = px.line(
+        df, 
+        x='rep_number', 
+        y='duration_seconds',
+        title='Squat Duration by Rep',
+        labels={'rep_number': 'Rep Number', 'duration_seconds': 'Duration (seconds)'}
+    )
+    
+    return fig_knee, fig_hip, fig_duration
+
+# Main app
+def main():
+    st.markdown('<h1 class="main-header">🏋️ Squat Tracker AI</h1>', unsafe_allow_html=True)
+    
+    # Sidebar
+    st.sidebar.header("Settings")
+    
+    # OpenAI API Key
+    openai_api_key = st.sidebar.text_input(
+        "OpenAI API Key", 
+        type="password",
+        help="Enter your OpenAI API key for AI analysis"
+    )
+    
+    # Threshold settings
+    st.sidebar.subheader("Detection Thresholds")
+    squat_down_threshold = st.sidebar.slider(
+        "Squat Down Threshold (degrees)", 
+        min_value=100, 
+        max_value=160, 
+        value=130,
+        help="Angle below which squat phase begins"
+    )
+    squat_up_threshold = st.sidebar.slider(
+        "Squat Up Threshold (degrees)", 
+        min_value=140, 
+        max_value=180, 
+        value=150,
+        help="Angle above which squat phase ends"
+    )
+    
+    # Main content
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.header("📹 Upload Video")
+        uploaded_file = st.file_uploader(
+            "Choose a video file",
+            type=['mp4', 'mov', 'avi', 'mkv'],
+            help="Upload a video of someone performing squats"
+        )
+        
+        if uploaded_file is not None:
+            if st.button("🚀 Process Video", type="primary"):
+                with st.spinner("Processing video... This may take a few minutes."):
+                    rep_data = process_video(
+                        uploaded_file, 
+                        squat_down_threshold, 
+                        squat_up_threshold
+                    )
+                    st.session_state.rep_data = rep_data
+                    st.session_state.video_processed = True
+                    st.success(f"✅ Processing complete! Found {len(rep_data)} squats.")
+    
+    with col2:
+        st.header("📊 Results")
+        
+        if st.session_state.video_processed and st.session_state.rep_data:
+            rep_data = st.session_state.rep_data
+            
+            # Summary metrics
+            col2_1, col2_2, col2_3 = st.columns(3)
+            
+            with col2_1:
+                st.metric("Total Reps", len(rep_data))
+            
+            with col2_2:
+                avg_knee = np.mean([rep['left_knee_angle'] for rep in rep_data] + 
+                                 [rep['right_knee_angle'] for rep in rep_data])
+                st.metric("Avg Knee Angle", f"{avg_knee:.1f}°")
+            
+            with col2_3:
+                avg_duration = np.mean([rep['duration_seconds'] for rep in rep_data])
+                st.metric("Avg Duration", f"{avg_duration:.1f}s")
+            
+            # Data table
+            st.subheader("📋 Rep Details")
+            df = pd.DataFrame(rep_data)
+            st.dataframe(df, use_container_width=True)
+            
+            # Download data
+            csv = df.to_csv(index=False)
+            st.download_button(
+                label="📥 Download Data as CSV",
+                data=csv,
+                file_name=f"squat_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv"
+            )
+    
+    # Visualizations
+    if st.session_state.video_processed and st.session_state.rep_data:
+        st.header("📈 Analysis Charts")
+        
+        fig_knee, fig_hip, fig_duration = create_visualizations(st.session_state.rep_data)
+        
+        if fig_knee:
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.plotly_chart(fig_knee, use_container_width=True)
+            
+            with col2:
+                st.plotly_chart(fig_duration, use_container_width=True)
+            
+            if fig_hip:
+                st.plotly_chart(fig_hip, use_container_width=True)
+    
+    # AI Analysis
+    if st.session_state.video_processed and st.session_state.rep_data:
+        st.header("🤖 AI Analysis")
+        
+        if st.button("🧠 Analyze with AI", type="primary"):
+            with st.spinner("AI is analyzing your squat data..."):
+                analysis = analyze_with_openai(st.session_state.rep_data, openai_api_key)
+                st.session_state.analysis_complete = True
+        
+        if st.session_state.analysis_complete:
+            st.markdown('<div class="analysis-box">', unsafe_allow_html=True)
+            st.markdown(analyze_with_openai(st.session_state.rep_data, openai_api_key))
+            st.markdown('</div>', unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()

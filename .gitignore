@@ -1,0 +1,32 @@
+# Large video files
+*.mp4
+*.MOV
+*.avi
+*.mkv
+
+# Model files (can be downloaded)
+*.pt
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/
+
+# Temporary files
+*.tmp
+*.temp
