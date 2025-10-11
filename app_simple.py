@@ -187,12 +187,8 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         tmp_path = tmp_file.name
     
     try:
-        # Load YOLOv11 model - ensure consistent model version
+        # Load YOLOv11 model
         with st.spinner("Loading YOLOv11 Pose model..."):
-            # Handle PyTorch 2.6+ security changes for model loading
-            import torch
-            from ultralytics.nn.tasks import PoseModel
-            torch.serialization.add_safe_globals([PoseModel])
             model = YOLO('yolo11n-pose.pt')
         
         # Open video
