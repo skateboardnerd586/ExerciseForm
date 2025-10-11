@@ -798,23 +798,22 @@ def main():
     # Important filming note
     st.markdown("""
     <div style="
-        background-color: #fff3cd;
-        border: 1px solid #ffeaa7;
+        background-color: #e8f5e8;
+        border: 1px solid #c3e6c3;
         border-radius: 10px;
         padding: 20px;
         margin: 20px 0;
         text-align: center;
     ">
-        <h3 style="color: #856404; margin: 0 0 10px 0;">📱 Important: Film Your Video Horizontally!</h3>
-        <p style="color: #856404; margin: 0; font-size: 16px;">
-            For best results, please film your overhead squat video in <strong>landscape/horizontal orientation</strong>. 
-            The AI works best when the video is recorded with the camera held sideways (landscape mode).
-            <br><br>
+        <h3 style="color: #2d5a2d; margin: 0 0 10px 0;">📱 Filming Tips for Best Results</h3>
+        <p style="color: #2d5a2d; margin: 0; font-size: 16px;">
             <strong>📏 Make sure the entire body is visible in the camera view</strong> - from head to feet - 
             so the AI can properly track all key points for accurate movement analysis.
             <br><br>
-            <strong>🔄 Video Orientation:</strong> The app tries to automatically detect video orientation from metadata. 
-            If automatic detection fails (common with many videos), use the "Manual Rotation Override" option in the sidebar to fix it.
+            <strong>🎥 Film in any orientation you prefer</strong> - the app will automatically detect and correct video orientation, 
+            or you can use the manual rotation option in the sidebar if needed.
+            <br><br>
+            <strong>💡 Pro tip:</strong> Ensure good lighting and a clear background for the best pose detection results.
         </p>
     </div>
     """, unsafe_allow_html=True)
