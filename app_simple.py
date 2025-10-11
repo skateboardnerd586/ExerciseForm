@@ -194,8 +194,12 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         # Open video
         cap = cv2.VideoCapture(tmp_path)
         
-        # Check if video needs horizontal flip correction
-        # Some video formats/cameras record mirrored
+        # Detect if we're in cloud environment and need flip correction
+        # Cloud environments often need horizontal flip for proper orientation
+        import os
+        is_cloud_env = os.getenv('STREAMLIT_CLOUD') is not None or 'streamlit' in os.getcwd()
+        
+        # Test frame to check orientation
         test_frame = None
         ret, test_frame = cap.read()
         if ret:
@@ -234,8 +238,9 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
             if not ret:
                 break
             
-            # Fix horizontal flip issue - flip frame horizontally
-            frame = cv2.flip(frame, 1)
+            # Apply horizontal flip only in cloud environment
+            if is_cloud_env:
+                frame = cv2.flip(frame, 1)
             
             frame_count += 1
             
