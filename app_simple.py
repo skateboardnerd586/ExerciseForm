@@ -15,6 +15,7 @@ from datetime import datetime
 import openai
 from io import BytesIO
 import matplotlib.pyplot as plt
+from PIL import Image, ExifTags
 
 # Page configuration
 st.set_page_config(
@@ -73,6 +74,51 @@ POSE_CONNECTIONS = [
     (5, 11), (6, 12), (11, 12),  # torso
     (11, 13), (12, 14), (13, 15), (14, 16),  # lower body
 ]
+
+def get_video_orientation(video_path):
+    """Get video orientation from metadata"""
+    try:
+        # Try to get orientation from video metadata using ffprobe
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-print_format', 'json', 
+            '-show_streams', video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        
+        if result.returncode == 0:
+            data = json.loads(result.stdout)
+            for stream in data.get('streams', []):
+                if stream.get('codec_type') == 'video':
+                    # Check for rotation metadata
+                    rotation = stream.get('tags', {}).get('rotate', 0)
+                    if rotation:
+                        return int(rotation)
+                    
+                    # Check for display matrix rotation
+                    side_data = stream.get('side_data_list', [])
+                    for side in side_data:
+                        if side.get('side_data_type') == 'Display Matrix':
+                            rotation_str = side.get('rotation', '0')
+                            if rotation_str:
+                                return int(rotation_str)
+        
+        return 0
+    except Exception as e:
+        st.warning(f"Could not detect video orientation: {e}")
+        return 0
+
+def rotate_frame(frame, rotation_angle):
+    """Rotate frame by specified angle"""
+    if rotation_angle == 0:
+        return frame
+    elif rotation_angle == 90:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    elif rotation_angle == 180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    elif rotation_angle == 270:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    else:
+        return frame
 
 def angle_between(v1, v2):
     """Calculate angle between two vectors in degrees"""
@@ -210,7 +256,7 @@ def draw_pose(frame, keypoints):
                         (int(end_point[0]), int(end_point[1])),
                         (255, 0, 0), 2)
 
-def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
+def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150, manual_rotation=0):
     """Process uploaded video and extract squat data"""
     
     # Save uploaded file temporarily
@@ -223,6 +269,16 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         with st.spinner("Loading YOLOv11 Pose model..."):
             model = YOLO('yolo11n-pose.pt')
         
+        # Detect video orientation
+        with st.spinner("Detecting video orientation..."):
+            detected_rotation = get_video_orientation(tmp_path)
+            total_rotation = (detected_rotation + manual_rotation) % 360
+        
+        if detected_rotation > 0:
+            st.info(f"📱 Detected video rotation: {detected_rotation}° (auto-correcting)")
+        if manual_rotation > 0:
+            st.info(f"🔄 Manual rotation applied: {manual_rotation}°")
+        
         # Open video
         cap = cv2.VideoCapture(tmp_path)
         
@@ -233,6 +289,10 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = cap.get(cv2.CAP_PROP_FPS)
+        
+        # Adjust dimensions if video will be rotated
+        if total_rotation in [90, 270]:
+            width, height = height, width
         
         # Setup video writer for output
         output_path = f"squat_tracker_output_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
@@ -268,6 +328,10 @@ def process_video(video_file, squat_down_threshold=130, squat_up_threshold=150):
             progress = frame_count / total_frames
             progress_bar.progress(progress)
             status_text.text(f"Processing frame {frame_count}/{total_frames}")
+            
+            # Apply rotation correction
+            if total_rotation > 0:
+                frame = rotate_frame(frame, total_rotation)
             
             # Detect pose
             keypoints = detect_pose_yolo(model, frame)
@@ -631,6 +695,9 @@ def main():
             <br><br>
             <strong>📏 Make sure the entire body is visible in the camera view</strong> - from head to feet - 
             so the AI can properly track all key points for accurate movement analysis.
+            <br><br>
+            <strong>🔄 Video Orientation:</strong> If your video appears upside down or sideways, use the "Manual Rotation Correction" 
+            option in the sidebar to fix it automatically.
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -643,6 +710,16 @@ def main():
         "OpenAI API Key", 
         type="password",
         help="Enter your OpenAI API key for AI analysis"
+    )
+    
+    # Video settings
+    st.sidebar.subheader("Video Settings")
+    
+    manual_rotation = st.sidebar.selectbox(
+        "Manual Rotation Correction",
+        options=[0, 90, 180, 270],
+        format_func=lambda x: f"{x}° ({'No rotation' if x == 0 else 'Rotate ' + str(x) + '° clockwise'})",
+        help="If the video appears upside down or sideways, use this to correct it"
     )
     
     # Threshold settings
@@ -681,7 +758,8 @@ def main():
                     rep_data, output_video_path = process_video(
                         uploaded_file, 
                         squat_down_threshold, 
-                        squat_up_threshold
+                        squat_up_threshold,
+                        manual_rotation
                     )
                     st.session_state.rep_data = rep_data
                     st.session_state.output_video_path = output_video_path
