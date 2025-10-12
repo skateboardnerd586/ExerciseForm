@@ -1,237 +1,192 @@
 """
-Main Streamlit Application for Overhead Squat Assessment
-Refactored into modular structure for better maintainability
+Exercise Analysis Platform - Home Page
+Main landing page with navigation to different exercise analyses
 """
 
 import streamlit as st
-import numpy as np
-import pandas as pd
-import os
-from datetime import datetime
-
-# Import our custom modules
-from utils import (
-    initialize_session_state, 
-    get_custom_css, 
-    get_assessment_info_html, 
-    get_filming_tips_html,
-    calculate_summary_metrics,
-    create_csv_download
-)
-from video_processing import process_video
-from ai_analysis import analyze_with_openai
-from visualization import create_matplotlib_charts
+from shared.common import initialize_session_state, get_custom_css
 
 # Page configuration
 st.set_page_config(
-    page_title="Overhead Squat Assessment AI",
+    page_title="Exercise Analysis Platform",
     page_icon="🏋️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': None
+    }
 )
 
-# Apply custom CSS
-st.markdown(get_custom_css(), unsafe_allow_html=True)
-
-# Initialize session state
-initialize_session_state()
-
 def main():
-    st.markdown('<h1 class="main-header">🏋️ Overhead Squat Assessment AI</h1>', unsafe_allow_html=True)
+    """Main home page function"""
     
-    # Overhead Squat Assessment Information
-    st.markdown(get_assessment_info_html(), unsafe_allow_html=True)
+    # Sidebar navigation
+    st.sidebar.title("🏋️ Exercise Analysis")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 📄 Navigation")
     
-    # How to Perform Overhead Squat Assessment
-    with st.container():
-        st.markdown("### 🏋️ How to Perform the Overhead Squat Assessment")
-        
-        st.markdown("#### 📋 Setup Instructions:")
-        st.markdown("""
-        1. **Stand tall** with feet shoulder-width apart, toes pointing forward
-        2. **Raise arms overhead** with elbows fully extended
-        3. **Keep arms parallel** to each other and perpendicular to the floor
-        4. **Maintain this overhead position** throughout the entire movement
-        """)
-        
-        st.markdown("#### ⬇️ Movement Instructions:")
-        st.markdown("""
-        1. **Begin descent** by pushing hips back and down
-        2. **Squat down** as low as possible while maintaining overhead position
-        3. **Keep chest up** and maintain neutral spine
-        4. **Hold briefly** at the bottom position
-        5. **Return to standing** while keeping arms overhead
-        """)
-        
-        st.markdown("💡 **Tip:** Perform 3-5 reps for best assessment results. The AI will analyze your movement patterns and provide corrective exercise recommendations.")
+    if st.sidebar.button("Home", use_container_width=True):
+        st.session_state.current_page = "home"
+        st.rerun()
     
-    # Important filming note
-    st.markdown(get_filming_tips_html(), unsafe_allow_html=True)
+    if st.sidebar.button("Overhead Squat Analysis", use_container_width=True):
+        st.session_state.current_page = "overhead_squat"
+        st.rerun()
     
-    # Sidebar
-    st.sidebar.header("Settings")
+    if st.sidebar.button("Deadlift Analysis", use_container_width=True):
+        st.session_state.current_page = "deadlift"
+        st.rerun()
     
-    # OpenAI API Key
-    openai_api_key = st.sidebar.text_input(
-        "OpenAI API Key", 
-        type="password",
-        help="Enter your OpenAI API key for AI analysis"
-    )
+    # Initialize session state
+    initialize_session_state()
     
-    # Video settings
-    st.sidebar.subheader("Video Settings")
+    # Apply custom CSS
+    st.markdown(get_custom_css(), unsafe_allow_html=True)
     
-    manual_rotation = st.sidebar.selectbox(
-        "Manual Rotation Override",
-        options=[0, 90, 180, 270],
-        format_func=lambda x: f"{x}° ({'Auto-detect only' if x == 0 else 'Override with ' + str(x) + '°'})",
-        help="Override automatic rotation detection if needed. Most mobile videos need 90° or 270° rotation."
-    )
+    # Main header
+    st.markdown('<h1 class="main-header">🏋️ Exercise Analysis Platform</h1>', unsafe_allow_html=True)
     
-    # Threshold settings
-    st.sidebar.subheader("Detection Thresholds")
-    st.sidebar.info("💡 **Note**: Due to model imperfections, maintain a ~20-degree difference between thresholds for reliable detection.")
+    # Welcome message
+    st.markdown("""
+    <div style="
+        background-color: #f8f9fa;
+        border: 1px solid #e9ecef;
+        border-radius: 10px;
+        padding: 30px;
+        margin: 20px 0;
+        text-align: center;
+    ">
+        <h2 style="color: #495057; margin: 0 0 20px 0;">Welcome to Your AI-Powered Exercise Analysis Platform</h2>
+        <p style="color: #6c757d; margin: 0; font-size: 18px; line-height: 1.6;">
+            Analyze your movement patterns with cutting-edge computer vision and AI technology. 
+            Get detailed insights into your exercise form, identify imbalances, and receive 
+            personalized recommendations for improvement.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
-    squat_down_threshold = st.sidebar.slider(
-        "Squat Down Threshold (degrees)", 
-        min_value=100, 
-        max_value=160, 
-        value=130,
-        help="Angle below which squat phase begins"
-    )
-    squat_up_threshold = st.sidebar.slider(
-        "Squat Up Threshold (degrees)", 
-        min_value=140, 
-        max_value=180, 
-        value=150,
-        help="Angle above which squat phase ends"
-    )
+    # Exercise selection cards
+    st.markdown("### 🎯 Choose Your Exercise Analysis")
     
-    # Main content
-    col1, col2 = st.columns([1, 1])
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.header("📹 Upload Overhead Squat Video")
-        uploaded_file = st.file_uploader(
-            "Choose a video file",
-            type=['mp4', 'mov', 'avi', 'mkv'],
-            help="Upload a video of someone performing overhead squats for movement assessment"
-        )
-        
-        if uploaded_file is not None:
-            if st.button("🚀 Process Video", type="primary"):
-                with st.spinner("Processing video... This may take a few minutes."):
-                    rep_data, output_video_path = process_video(
-                        uploaded_file, 
-                        squat_down_threshold, 
-                        squat_up_threshold,
-                        manual_rotation
-                    )
-                    st.session_state.rep_data = rep_data
-                    st.session_state.output_video_path = output_video_path
-                    st.session_state.video_processed = True
-                    st.success(f"✅ Processing complete! Found {len(rep_data)} squats.")
+        st.markdown("""
+        <div style="
+            background-color: #d1ecf1;
+            border: 1px solid #2196f3;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 10px 0;
+            text-align: center;
+            height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        ">
+            <h3 style="color: #0c5460; margin: 0 0 15px 0;"> Overhead Squat Analysis</h3>
+            <p style="color: #0c5460; margin: 0 0 15px 0;">
+                Analyze ankle mobility, hip flexibility, shoulder mobility, and core stability
+            </p>
+            <p style="color: #0c5460; margin: 0; font-size: 14px;">
+                <em>Perfect for assessing full-body movement patterns and mobility</em>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
     
     with col2:
-        st.header("📊 Results")
-        
-        if st.session_state.video_processed and st.session_state.rep_data:
-            rep_data = st.session_state.rep_data
-            
-            # Summary metrics
-            metrics = calculate_summary_metrics(rep_data)
-            col2_1, col2_2, col2_3 = st.columns(3)
-            
-            with col2_1:
-                st.metric("Total Reps", metrics['total_reps'])
-            
-            with col2_2:
-                st.metric("Avg Knee Angle", f"{metrics['avg_knee_angle']:.1f} deg")
-            
-            with col2_3:
-                st.metric("Avg Duration", f"{metrics['avg_duration']:.1f}s")
-            
-            # Data table
-            st.subheader("📋 Rep Details")
-            st.info("📊 **Note**: All angles shown are measured at the deepest point of each overhead squat rep (bottom of squat when knee angles are smallest). This is the most critical position for assessing movement quality and identifying limitations.")
-            df = pd.DataFrame(rep_data)
-            st.dataframe(df, width='stretch')
-            
-            # Download data
-            csv, filename = create_csv_download(rep_data)
-            if csv:
-            st.download_button(
-                label="📥 Download Data as CSV",
-                data=csv,
-                    file_name=filename,
-                mime="text/csv"
-            )
-    
-    # Video Output Section
-    if st.session_state.video_processed and st.session_state.output_video_path:
-        st.header("🎥 Processed Video")
-        
-        col_vid1, col_vid2 = st.columns([2, 1])
-        
-        with col_vid1:
-            st.subheader("📹 Annotated Video")
-            if os.path.exists(st.session_state.output_video_path):
-                # Display video
-                video_file = open(st.session_state.output_video_path, 'rb')
-                video_bytes = video_file.read()
-                st.video(video_bytes)
-                video_file.close()
-            else:
-                st.error("Video file not found. Please reprocess the video.")
-        
-        with col_vid2:
-            st.subheader("📥 Download Video")
-            if os.path.exists(st.session_state.output_video_path):
-                with open(st.session_state.output_video_path, 'rb') as video_file:
-                    st.download_button(
-                        label="🎬 Download Annotated Video",
-                        data=video_file.read(),
-                        file_name=f"squat_analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
-                        mime="video/mp4",
-                        type="primary"
-                    )
-            else:
-                st.error("Video file not available for download.")
-    
-    # Visualizations
-    if st.session_state.video_processed and st.session_state.rep_data:
-        st.header("📈 Analysis Charts")
-        
-        fig = create_matplotlib_charts(st.session_state.rep_data)
-        
-        if fig:
-            st.pyplot(fig)
-    
-    # AI Analysis
-    if st.session_state.video_processed and st.session_state.rep_data:
-        st.header("🤖 AI Analysis")
-        
-        if st.button("🧠 Analyze with AI", type="primary"):
-            with st.spinner("AI is analyzing your squat data..."):
-                analysis = analyze_with_openai(st.session_state.rep_data, openai_api_key)
-                st.session_state.analysis_complete = True
-        
-        if st.session_state.analysis_complete:
-            analysis_text = analyze_with_openai(st.session_state.rep_data, openai_api_key)
-            st.markdown(f"""
-            <div class="analysis-box" style="
-                background-color: #f0f2f6;
-                padding: 20px;
-                border-radius: 10px;
-                border-left: 4px solid #667eea;
-                margin: 20px 0;
-                max-height: none;
-                overflow: visible;
-                white-space: pre-wrap;
+        st.markdown("""
+        <div style="
+                background-color: #f8d7da;
+                border: 1px solid #2196f3;
+            border-radius: 10px;
+            padding: 20px;
+                margin: 10px 0;
+            text-align: center;
+                height: 200px;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
             ">
-            {analysis_text}
+                <h3 style="color: #721c24; margin: 0 0 15px 0;"> Deadlift Analysis</h3>
+                <p style="color: #721c24; margin: 0 0 15px 0;">
+                    Analyze hip hinge mechanics, back position, and lifting form
+                </p>
+                <p style="color: #721c24; margin: 0; font-size: 14px;">
+                    <em>Perfect for assessing posterior chain strength and technique</em>
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Navigation buttons
+    st.markdown("### 🚀 Get Started")
+    
+    col_a, col_b = st.columns(2)
+    
+    with col_a:
+        if st.button("Start Overhead Squat Analysis", use_container_width=True, type="primary"):
+            st.session_state.current_page = "overhead_squat"
+            st.rerun()
+    
+    with col_b:
+        if st.button("Start Deadlift Analysis", use_container_width=True, type="primary"):
+            st.session_state.current_page = "deadlift"
+            st.rerun()
+    
+    # Features section
+    st.markdown("---")
+    st.markdown("### ✨ Platform Features")
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown("""
+        <div style="text-align: center; padding: 20px;">
+            <h4 style="color: #495057;">🎥 Computer Vision</h4>
+            <p style="color: #6c757d;">
+                Advanced pose detection using YOLOv11 for accurate movement tracking
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("""
+        <div style="text-align: center; padding: 20px;">
+            <h4 style="color: #495057;">🤖 AI Analysis</h4>
+            <p style="color: #6c757d;">
+                OpenAI-powered analysis with personalized recommendations
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown("""
+        <div style="text-align: center; padding: 20px;">
+            <h4 style="color: #495057;">📊 Detailed Reports</h4>
+            <p style="color: #6c757d;">
+                Comprehensive charts and data export for tracking progress
+            </p>
             </div>
             """, unsafe_allow_html=True)
 
+# Main execution
 if __name__ == "__main__":
-    main()
+    # Initialize session state for navigation
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "home"
+    
+    # Route to appropriate page
+    current_page = st.session_state.current_page
+    
+    if current_page == 'home':
+        main()
+    elif current_page == 'overhead_squat':
+        from pages.overhead_squat.main import overhead_squat_page
+        overhead_squat_page()
+    elif current_page == 'deadlift':
+        from pages.deadlift.main import deadlift_page
+        deadlift_page()
+    else:
+        main()
