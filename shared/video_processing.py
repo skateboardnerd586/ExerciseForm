@@ -140,8 +140,6 @@ def setup_video_processing(video_file, manual_rotation=0):
             # More explicit check: if rotation was detected, we're likely in cloud
             if detected_rotation != 0:
                 is_cloud = True
-                # st.info(f"🔄 Rotation detected ({detected_rotation}°) - assuming cloud environment")
-            
             if not is_cloud:
                 # Force no rotation when running locally
                 detected_rotation = 0
@@ -153,7 +151,8 @@ def setup_video_processing(video_file, manual_rotation=0):
             st.info(f"📱 Video dimensions: {width}x{height} pixels")
         
         if detected_rotation > 0:
-            st.success(f"🎯 **Auto-detected rotation: {detected_rotation}°** - Video will be automatically corrected!")
+            # Auto-detected rotation - video will be automatically corrected
+            pass
         elif manual_rotation > 0:
             st.info(f"🔄 Manual rotation applied: {manual_rotation}°")
         else:
