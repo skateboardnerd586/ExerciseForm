@@ -61,6 +61,8 @@ def rotate_frame(frame, rotation_angle):
 def is_cloud_environment():
     """Detect if running in cloud environment (Streamlit Cloud, Heroku, etc.)"""
     import os
+    import socket
+    
     # Check for common cloud environment indicators
     cloud_indicators = [
         'STREAMLIT_SHARING_MODE',  # Streamlit Cloud
@@ -70,6 +72,8 @@ def is_cloud_environment():
         'AWS_',  # AWS
         'GOOGLE_CLOUD',  # Google Cloud
         'AZURE_',  # Azure
+        'STREAMLIT_SERVER_PORT',  # Streamlit Cloud
+        'STREAMLIT_SERVER_ADDRESS',  # Streamlit Cloud
     ]
     
     for indicator in cloud_indicators:
@@ -79,8 +83,22 @@ def is_cloud_environment():
     # Check if running on Streamlit Cloud specifically
     if 'streamlit.app' in os.environ.get('STREAMLIT_SERVER_HEADLESS', ''):
         return True
-        
-    return False
+    
+    # Check if running on known cloud domains
+    try:
+        hostname = socket.gethostname()
+        if any(domain in hostname.lower() for domain in ['streamlit', 'heroku', 'aws', 'azure', 'gcp']):
+            return True
+    except:
+        pass
+    
+    # Check if we're running in a containerized environment (common in cloud)
+    if os.path.exists('/.dockerenv') or os.environ.get('CONTAINER'):
+        return True
+    
+    # Default to cloud if we can't determine (safer for rotation)
+    # This ensures rotation works in cloud environments even if detection fails
+    return True
 
 def setup_video_processing(video_file, manual_rotation=0):
     """Setup video processing with rotation detection and temporary file handling"""
@@ -98,11 +116,22 @@ def setup_video_processing(video_file, manual_rotation=0):
             
             # Only apply rotation in cloud environments, never locally
             is_cloud = is_cloud_environment()
+            
+            # Debug information for troubleshooting
+            debug_env_info = {
+                'is_cloud': is_cloud,
+                'detected_rotation': detected_rotation,
+                'manual_rotation': manual_rotation,
+                'env_vars': {k: v for k, v in os.environ.items() if 'STREAMLIT' in k or 'PORT' in k or 'CLOUD' in k}
+            }
+            
             if not is_cloud:
                 # Force no rotation when running locally
                 detected_rotation = 0
                 manual_rotation = 0
-                debug_info.append("💻 Local environment - no rotation applied")
+                st.info(f"🔧 Local environment detected - rotation disabled. Debug: {debug_env_info}")
+            else:
+                st.info(f"☁️ Cloud environment detected - rotation enabled. Debug: {debug_env_info}")
             
             total_rotation = (detected_rotation + manual_rotation) % 360
         
