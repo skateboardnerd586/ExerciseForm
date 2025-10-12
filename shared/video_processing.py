@@ -74,6 +74,7 @@ def is_cloud_environment():
         'AZURE_',  # Azure
         'STREAMLIT_SERVER_PORT',  # Streamlit Cloud
         'STREAMLIT_SERVER_ADDRESS',  # Streamlit Cloud
+        'STREAMLIT_SERVER_HEADLESS',  # Streamlit Cloud
     ]
     
     for indicator in cloud_indicators:
@@ -95,6 +96,16 @@ def is_cloud_environment():
     # Check if we're running in a containerized environment (common in cloud)
     if os.path.exists('/.dockerenv') or os.environ.get('CONTAINER'):
         return True
+    
+    # Check if we're NOT running locally (more reliable approach)
+    # If we can't determine it's local, assume it's cloud
+    try:
+        # Check if we're running on localhost/127.0.0.1
+        if 'localhost' in os.environ.get('STREAMLIT_SERVER_ADDRESS', '') or \
+           '127.0.0.1' in os.environ.get('STREAMLIT_SERVER_ADDRESS', ''):
+            return False
+    except:
+        pass
     
     # Default to cloud if we can't determine (safer for rotation)
     # This ensures rotation works in cloud environments even if detection fails
@@ -122,16 +133,26 @@ def setup_video_processing(video_file, manual_rotation=0):
                 'is_cloud': is_cloud,
                 'detected_rotation': detected_rotation,
                 'manual_rotation': manual_rotation,
-                'env_vars': {k: v for k, v in os.environ.items() if 'STREAMLIT' in k or 'PORT' in k or 'CLOUD' in k}
+                'env_vars': {k: v for k, v in os.environ.items() if 'STREAMLIT' in k or 'PORT' in k or 'CLOUD' in k},
+                'all_env_vars': dict(os.environ)  # Show all environment variables for debugging
             }
+            
+            # More explicit check: if rotation was detected, we're likely in cloud
+            if detected_rotation != 0:
+                is_cloud = True
+                st.info(f"🔄 Rotation detected ({detected_rotation}°) - assuming cloud environment")
             
             if not is_cloud:
                 # Force no rotation when running locally
                 detected_rotation = 0
                 manual_rotation = 0
-                st.info(f"🔧 Local environment detected - rotation disabled. Debug: {debug_env_info}")
+                st.info(f"🔧 Local environment detected - rotation disabled")
             else:
-                st.info(f"☁️ Cloud environment detected - rotation enabled. Debug: {debug_env_info}")
+                st.info(f"☁️ Cloud environment detected - rotation enabled")
+            
+            # Show debug info in expander for troubleshooting
+            with st.expander("🔍 Environment Debug Info"):
+                st.json(debug_env_info)
             
             total_rotation = (detected_rotation + manual_rotation) % 360
         
