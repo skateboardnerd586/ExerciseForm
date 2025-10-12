@@ -99,23 +99,23 @@ def main():
     with col2:
         st.markdown("""
         <div style="
-                background-color: #f8d7da;
-                border: 1px solid #2196f3;
+            background-color: #f8d7da;
+            border: 1px solid #2196f3;
             border-radius: 10px;
             padding: 20px;
-                margin: 10px 0;
+            margin: 10px 0;
             text-align: center;
-                height: 200px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-            ">
-                <h3 style="color: #721c24; margin: 0 0 15px 0;"> Deadlift Analysis</h3>
-                <p style="color: #721c24; margin: 0 0 15px 0;">
-                    Analyze hip hinge mechanics, back position, and lifting form
-                </p>
-                <p style="color: #721c24; margin: 0; font-size: 14px;">
-                    <em>Perfect for assessing posterior chain strength and technique</em>
+            height: 200px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        ">
+            <h3 style="color: #721c24; margin: 0 0 15px 0;"> Deadlift Analysis</h3>
+            <p style="color: #721c24; margin: 0 0 15px 0;">
+                Analyze hip hinge mechanics, back position, and lifting form
+            </p>
+            <p style="color: #721c24; margin: 0; font-size: 14px;">
+                <em>Perfect for assessing posterior chain strength and technique</em>
             </p>
         </div>
         """, unsafe_allow_html=True)
