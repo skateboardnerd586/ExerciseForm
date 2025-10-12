@@ -140,7 +140,7 @@ def setup_video_processing(video_file, manual_rotation=0):
             # More explicit check: if rotation was detected, we're likely in cloud
             if detected_rotation != 0:
                 is_cloud = True
-                st.info(f"🔄 Rotation detected ({detected_rotation}°) - assuming cloud environment")
+                # st.info(f"🔄 Rotation detected ({detected_rotation}°) - assuming cloud environment")
             
             if not is_cloud:
                 # Force no rotation when running locally
