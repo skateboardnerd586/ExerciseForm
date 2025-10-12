@@ -97,14 +97,14 @@ def main():
         """, unsafe_allow_html=True)
     
     with col2:
-        st.markdown("""
-        <div style="
+    st.markdown("""
+    <div style="
             background-color: #f8d7da;
             border: 1px solid #2196f3;
-            border-radius: 10px;
-            padding: 20px;
+        border-radius: 10px;
+        padding: 20px;
             margin: 10px 0;
-            text-align: center;
+        text-align: center;
             height: 200px;
             display: flex;
             flex-direction: column;
@@ -116,9 +116,9 @@ def main():
             </p>
             <p style="color: #721c24; margin: 0; font-size: 14px;">
                 <em>Perfect for assessing posterior chain strength and technique</em>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     # Navigation buttons
     st.markdown("### 🚀 Get Started")
@@ -189,4 +189,4 @@ if __name__ == "__main__":
         from pages.deadlift.main import deadlift_page
         deadlift_page()
     else:
-        main()
+    main()

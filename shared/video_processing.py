@@ -146,23 +146,11 @@ def setup_video_processing(video_file, manual_rotation=0):
                 # Force no rotation when running locally
                 detected_rotation = 0
                 manual_rotation = 0
-                st.info(f"🔧 Local environment detected - rotation disabled")
-            else:
-                st.info(f"☁️ Cloud environment detected - rotation enabled")
-            
-            # Show debug info in expander for troubleshooting
-            with st.expander("🔍 Environment Debug Info"):
-                st.json(debug_env_info)
             
             total_rotation = (detected_rotation + manual_rotation) % 360
         
         if width and height:
             st.info(f"📱 Video dimensions: {width}x{height} pixels")
-        
-        # Show debug information to help understand what was detected
-        with st.expander("🔍 Orientation Detection Details", expanded=False):
-            for info in debug_info:
-                st.text(info)
         
         if detected_rotation > 0:
             st.success(f"🎯 **Auto-detected rotation: {detected_rotation}°** - Video will be automatically corrected!")
